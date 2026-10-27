@@ -47,7 +47,9 @@ and needs a JavaScript runtime such as Deno or Node.
 - **YouTube sign-in/cookie errors:** if the feed is accessible to an authorized
   account, export Netscape-format cookies and mount the file as a deployment
   secret. Set `SPE_YTDLP_COOKIE_FILE` to that file's path. Never commit cookies
-  or include them in an image or source archive.
+  or include them in an image or source archive. When yt-dlp is rejected, the
+  app falls back to a public Invidious instance. Set `SPE_INVIDIOUS_URL` to a
+  comma-separated list of instances, or `off` to disable the fallback.
 - **HTTP 403 or unavailable feed:** check that the video is publicly playable
   from the deployment region and refresh the feed URL if its live stream changed.
 
