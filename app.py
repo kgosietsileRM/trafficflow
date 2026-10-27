@@ -491,7 +491,7 @@ def _preview_bytes(source: str, preset_name: str) -> bytes:
     try:
         ok, frame = capture.read()
         if not ok:
-            raise ValueError(f"Could not read media: {path}")
+            raise ValueError(core.media_error_hint(path, "read"))
         height, width = frame.shape[:2]
         points = preset_points(preset, width, height)
         engine = core.build_engine(

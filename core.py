@@ -7,9 +7,12 @@ import from the SDK source tree; each environment installs the published
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import shutil
+import ssl
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator, Sequence
@@ -18,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import cv2
+import live as live_media
 import numpy as np
 
 from spe import (
@@ -86,6 +90,24 @@ def _cache_name(url: str) -> str:
     return name or "downloaded-video.mp4"
 
 
+def media_error_hint(path: Path | str, action: str = "open") -> str:
+    """Return actionable guidance for a remote stream open/read failure."""
+    value = str(path)
+    if value.startswith(("http://", "https://")):
+        return (
+            f"Could not {action} remote stream. Check outbound HTTPS and FFmpeg/HLS support. "
+            "For a custom CA, set SPE_CA_BUNDLE; for YouTube sign-in/bot checks, set "
+            "SPE_YTDLP_COOKIE_FILE to a secret Netscape cookies.txt file and ensure a "
+            "JavaScript runtime is installed."
+        )
+    return f"Could not {action} video: {path}"
+
+
+def _ssl_context() -> ssl.SSLContext:
+    ca_bundle = live_media.ca_bundle_path()
+    return ssl.create_default_context(cafile=str(ca_bundle) if ca_bundle else None)
+
+
 def resolve_media(key: str, links: dict[str, str] | None = None, *, download: bool = True) -> Path:
     """Resolve a link key to a local path, downloading remote media on demand."""
     table = links if links is not None else load_links()
@@ -100,11 +122,28 @@ def resolve_media(key: str, links: dict[str, str] | None = None, *, download: bo
         target = cache / _cache_name(value)
         if not target.exists():
             partial = target.with_suffix(target.suffix + ".part")
-            with (
-                urllib.request.urlopen(value, timeout=60) as response,
-                partial.open("wb") as handle,
-            ):
-                shutil.copyfileobj(response, handle)
+            try:
+                with (
+                    urllib.request.urlopen(value, timeout=60, context=_ssl_context()) as response,
+                    partial.open("wb") as handle,
+                ):
+                    shutil.copyfileobj(response, handle)
+            except (ssl.SSLCertVerificationError, urllib.error.URLError) as error:
+                reason = getattr(error, "reason", error)
+                if isinstance(
+                    reason, ssl.SSLCertVerificationError
+                ) or "CERTIFICATE_VERIFY_FAILED" in str(error):
+                    with contextlib.suppress(OSError):
+                        partial.unlink()
+                    raise ValueError(
+                        "TLS certificate verification failed while downloading this feed. "
+                        "Install the host CA certificates or set SPE_CA_BUNDLE to a trusted PEM bundle."
+                    ) from error
+                raise
+            except Exception:
+                with contextlib.suppress(OSError):
+                    partial.unlink()
+                raise
             partial.replace(target)
         return target
     return (ASSETS_DIR / value).resolve()
@@ -114,7 +153,7 @@ def probe(path: Path | str) -> VideoInfo:
     """Read video dimensions, frame rate, and frame count."""
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
-        raise ValueError(f"Could not open video: {path}")
+        raise ValueError(media_error_hint(path, "open"))
     try:
         return VideoInfo(
             path=path,
@@ -430,7 +469,7 @@ def analyze(
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
         detector.close()
-        raise ValueError(f"Could not open video: {path}")
+        raise ValueError(media_error_hint(path, "open"))
     try:
         for frame_index, timestamp, frame in frames(capture, info.fps, sample_fps):
             detections = detector.detect(frame, frame_index, timestamp)

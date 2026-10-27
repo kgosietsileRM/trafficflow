@@ -2,3 +2,5 @@
 outputs/
 __pycache__/
 *.pyc
+*.cookies.txt
+secrets/

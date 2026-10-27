@@ -105,6 +105,8 @@ const state = {
   searchTerm: "",
   cycleTimer: null,
   view: "info-view",
+  previewRequestId: 0,
+  previewObjectUrl: null,
   fps: 5,
   startedAt: null,
   finishedAt: null,
@@ -279,25 +281,18 @@ function updateFramesLabel() {
 
 async function refreshPreview() {
   if (state.status === "running" || state.status === "queued") return;
+  const requestId = ++state.previewRequestId;
   const source = dom.source.value;
   const sourceLabel = selectedSourceLabel();
   const isLive = selectedSourceIsLive();
   const presetName = dom.preset.value;
   const preset = state.presets[presetName] || { name: presetName };
+  const previewUrl = `/api/preview?source=${encodeURIComponent(source)}&preset=${encodeURIComponent(presetName)}&t=${Date.now()}`;
   syncFeaturedCamera();
   dom.placeholder.hidden = false;
   dom.placeholder.querySelector("p").textContent = isLive ? "Resolving live camera feed…" : "Loading camera preview…";
   dom.frame.classList.remove("visible");
   dom.frame.alt = `Preview of ${sourceLabel}`;
-  dom.frame.src = `/api/preview?source=${encodeURIComponent(source)}&preset=${encodeURIComponent(presetName)}&t=${Date.now()}`;
-  dom.frame.onload = () => {
-    dom.frame.classList.add("visible");
-    dom.placeholder.hidden = true;
-  };
-  dom.frame.onerror = () => {
-    dom.placeholder.hidden = false;
-    dom.placeholder.querySelector("p").textContent = "Preview unavailable for this feed.";
-  };
   dom.feedName.textContent = sourceLabel;
   dom.detectionLabel.textContent = dom.mode.value === "local" ? "Local" : "Engine";
   dom.overlayCamera.textContent = `${sourceCameraId(source)} · ${sourceLabel}`;
@@ -305,6 +300,34 @@ async function refreshPreview() {
   dom.overlayFrame.textContent = isLive ? "LIVE" : "PREVIEW";
   dom.overlaySource.textContent = `${preset.name || presetName} · ${preset.columns || "—"} lanes`;
   setStage("Preview", `${preset.name || presetName} camera preview`, isLive ? "LIVE" : "PREVIEW", "preview");
+
+  try {
+    const response = await fetch(previewUrl, { cache: "no-store" });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `Preview request failed (${response.status}).`);
+    }
+    const image = URL.createObjectURL(await response.blob());
+    if (requestId !== state.previewRequestId || state.busy) {
+      URL.revokeObjectURL(image);
+      return;
+    }
+    if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
+    state.previewObjectUrl = image;
+    dom.frame.onload = () => {
+      dom.frame.classList.add("visible");
+      dom.placeholder.hidden = true;
+    };
+    dom.frame.onerror = () => {
+      dom.placeholder.hidden = false;
+      dom.placeholder.querySelector("p").textContent = "The preview image could not be decoded.";
+    };
+    dom.frame.src = image;
+  } catch (error) {
+    if (requestId !== state.previewRequestId) return;
+    dom.placeholder.hidden = false;
+    dom.placeholder.querySelector("p").textContent = error.message || "Preview unavailable for this feed.";
+  }
 }
 
 async function loadSources() {

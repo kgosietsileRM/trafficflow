@@ -13,8 +13,8 @@ until stopped and retain a rolling replay window. Recorded sources finish after
 the configured sample count.
 
 The example uses a separate virtual environment and installs
-`spe-engine==0.2.1` from PyPI together with Flask and `yt-dlp` (used to resolve
-YouTube camera links). It does not import from `../../src`.
+`spe-engine==0.2.1` from PyPI together with Flask and `yt-dlp[default]` (used to
+resolve YouTube camera links). It does not import from `../../src`.
 
 ## Run
 
@@ -35,6 +35,24 @@ Outputs are stored under `outputs/sessions/<id>/`:
 - `frame-*.jpg` — annotated frames for live display and replay
 - `session.json` — persisted session telemetry
 - `report.json` — incident, lane, advisory, and source report
+
+## Deploying remote feeds
+
+The deployment host must allow outbound HTTPS and include FFmpeg support in its
+OpenCV build. YouTube extraction uses `yt-dlp[default]` (including `yt-dlp-ejs`)
+and needs a JavaScript runtime such as Deno or Node.
+
+- **TLS/certificate errors:** install the host's CA certificates. For a custom
+  proxy or private CA, set `SPE_CA_BUNDLE` to an absolute path to a PEM CA bundle.
+- **YouTube sign-in/cookie errors:** if the feed is accessible to an authorized
+  account, export Netscape-format cookies and mount the file as a deployment
+  secret. Set `SPE_YTDLP_COOKIE_FILE` to that file's path. Never commit cookies
+  or include them in an image or source archive.
+- **HTTP 403 or unavailable feed:** check that the video is publicly playable
+  from the deployment region and refresh the feed URL if its live stream changed.
+
+The preview and session error messages include the corresponding deployment
+setting when certificate verification, YouTube access, or stream opening fails.
 
 ## API
 
