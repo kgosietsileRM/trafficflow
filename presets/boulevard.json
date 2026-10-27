@@ -1,0 +1,22 @@
+{
+  "name": "Boulevard · eight lanes",
+  "description": "Four lanes each way across the full camera view, split into left and right carriageways.",
+  "rows": 2,
+  "columns": 8,
+  "points_fraction": [
+    [0.02, 0.34],
+    [0.995, 0.34],
+    [0.995, 0.97],
+    [0.005, 0.97]
+  ],
+  "groups": [
+    {
+      "name": "Left carriageway",
+      "lanes": ["A", "B", "C", "D"]
+    },
+    {
+      "name": "Right carriageway",
+      "lanes": ["E", "F", "G", "H"]
+    }
+  ]
+}

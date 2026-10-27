@@ -1,0 +1,12 @@
+{
+  "name": "Two-lane compact",
+  "description": "A narrower two-lane view for lower-resolution clips.",
+  "rows": 2,
+  "columns": 2,
+  "points_fraction": [
+    [0.24, 0.25],
+    [0.88, 0.24],
+    [0.999, 0.999],
+    [0.02, 0.999]
+  ]
+}

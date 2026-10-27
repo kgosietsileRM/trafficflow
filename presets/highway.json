@@ -1,0 +1,12 @@
+{
+  "name": "Highway approach",
+  "description": "Six calibrated cells over a three-lane approach, with lane-level queue stats.",
+  "rows": 2,
+  "columns": 3,
+  "points_fraction": [
+    [0.16, 0.23],
+    [0.91, 0.22],
+    [0.999, 0.999],
+    [0.0, 0.999]
+  ]
+}

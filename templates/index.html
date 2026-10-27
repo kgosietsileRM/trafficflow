@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>FlowTraffic OPS — Traffic Monitoring</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17h4l2-6 3 9 3-12 2 9h4"/></svg></div>
+      <div class="brand-copy"><h1>FlowTraffic <em>OPS</em></h1><p>Traffic monitoring & response</p></div>
+    </div>
+
+    <nav class="view-tabs" aria-label="Application views">
+      <button type="button" class="view-tab active" data-view="info-view" aria-pressed="true">Info</button>
+      <button type="button" class="view-tab" data-view="about-view" aria-pressed="false">About</button>
+    </nav>
+
+    <div class="header-metrics" aria-label="Current traffic metrics">
+      <button type="button" class="header-metric" data-metric="vehicles" aria-label="Active vehicles">
+        <span>ACTIVE VEHICLES</span><strong id="kpi-active">0</strong><small id="kpi-active-sub">No feed</small>
+      </button>
+      <button type="button" class="header-metric" data-metric="congestion" aria-label="Congestion index">
+        <span>CONGESTION INDEX</span><strong id="kpi-congestion">0</strong><small id="kpi-congestion-sub">Normal range</small>
+      </button>
+      <button type="button" class="header-metric" data-metric="speed" aria-label="Relative speed">
+        <span>RELATIVE SPEED</span><strong id="kpi-speed">0</strong><small>Indexed to calibration</small>
+      </button>
+    </div>
+
+    <div class="header-actions">
+      <div class="selected-meta"><strong id="feed-name">—</strong><span id="detection-label">Local</span></div>
+      <div class="connection" id="connection"><i id="connection-dot" aria-hidden="true"></i><span id="connection-label">Standby</span></div>
+      <button id="run" class="header-start" type="button">Start monitoring</button>
+      <button id="cancel" class="header-stop" type="button" hidden>Stop monitoring</button>
+      <span id="header-alerts" class="header-alerts" title="Open incidents"><i></i><span id="alertCount">0</span></span>
+      <div class="clock-block"><span>LOCAL TIME</span><strong id="clock">--:--:--</strong></div>
+    </div>
+  </header>
+
+  <main id="info-view" class="info-view" aria-label="Traffic monitoring dashboard">
+    <aside class="panel monitoring-card" id="monitoring-card">
+      <div class="card-heading">
+        <div><span class="eyebrow">Network</span><h2>Monitoring</h2></div>
+        <span class="count" id="camCount">0</span>
+      </div>
+      <label class="camera-search" aria-label="Search cameras">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="searchInput" type="search" placeholder="Search cameras…" autocomplete="off">
+      </label>
+      <div class="chips" id="chips" role="group" aria-label="Filter cameras">
+        <button class="chip active" type="button" data-f="all" aria-pressed="true">All</button>
+        <button class="chip" type="button" data-f="live" aria-pressed="false">Live</button>
+        <button class="chip" type="button" data-f="recorded" aria-pressed="false">Recorded</button>
+        <button class="chip" type="button" data-f="alerts" aria-pressed="false">Alerts</button>
+      </div>
+      <div class="cam-list" id="camList" aria-live="polite"><p class="empty">Loading camera links…</p></div>
+
+      <form id="run-form" class="monitor-form" autocomplete="off">
+        <div class="form-section-label"><span>Analysis setup</span><span class="tag" id="assignment-tag">CAM-01</span></div>
+        <label class="field">Camera feed
+          <select id="source" name="source">
+            {% for key in sources %}
+            <option value="{{ key }}" {% if key == default_source %}selected{% endif %}>{{ source_label(key) }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">Lane preset
+          <select id="preset" name="preset">
+            {% for key, preset in presets.items() %}
+            <option value="{{ key }}" {% if key == default_preset %}selected{% endif %}>{{ preset.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="field-row">
+          <label class="field"><span id="frames-label">Sample frames</span><input id="frames" type="number" min="20" max="300" step="10" value="120"></label>
+          <label class="field">Sample rate<input id="fps" type="number" min="1" max="15" step="0.5" value="5"></label>
+        </div>
+        <details class="settings">
+          <summary>Detection settings</summary>
+          <label class="field">Mode<select id="mode"><option value="local">Local video analysis</option><option value="server">SPE engine endpoint</option></select></label>
+          <label class="field">Engine URL<input id="url" type="url" value="http://127.0.0.1:5000"></label>
+          <div class="field-row">
+            <label class="field">Model<input id="model" type="text" value="model-a"></label>
+            <label class="field">Confidence<input id="confidence" type="number" min="0" max="1" step="0.05" value="0.4"></label>
+          </div>
+        </details>
+        <button class="sr-only" type="submit" aria-label="Submit monitoring settings">Apply settings</button>
+        <p id="form-error" class="form-error" role="alert" hidden></p>
+      </form>
+      <div class="monitor-status">
+        <div class="progress-meta"><span id="run-state">Standby</span><span id="progress-text" class="mono">0%</span></div>
+        <div class="progress-track"><div id="progress-bar"></div></div>
+        <div class="progress-meta dim"><span id="run-frames">0 / 0 frames</span><span id="run-elapsed" class="mono">00:00</span></div>
+      </div>
+    </aside>
+
+    <section class="panel wall-card" aria-label="Camera wall">
+      <div class="wall-toolbar">
+        <div class="wall-heading"><span class="eyebrow">Selected feed</span><h2>Live camera wall</h2><span class="wt-sub" id="wallSub">Loading feeds…</span></div>
+        <div class="wt-right"><button class="tb-btn" id="cycleBtn" type="button">Auto-cycle</button><button class="tb-btn" id="fsBtn" type="button">Fullscreen</button></div>
+      </div>
+      <div class="wall-scroll">
+        <div class="wall-grid" id="wallGrid">
+          <article class="tile featured" id="featuredTile">
+            <div class="tile-media" id="frame-wrap">
+              <img id="frame" alt="Selected traffic camera">
+              <div class="frame-placeholder" id="placeholder"><div class="placeholder-mark" aria-hidden="true"></div><p>Select a camera to load its preview.</p></div>
+              <div class="frame-overlay" id="frame-overlay">
+                <div class="tile-top"><span class="cam-id" id="featured-id">CAM-01</span><span id="featured-live" class="live-badge ready"><i class="rec"></i>READY</span></div>
+                <div class="overlay-row overlay-top"><span id="overlay-camera">CAM-01 · TRAFFIC CAMERA</span><span id="overlay-time" class="mono">--:--:--</span></div>
+                <div class="tile-bottom"><div class="tile-name" id="featured-name">Select a camera</div><div class="tile-meta"><span id="featured-area">Traffic network</span><i></i><span id="overlay-frame" class="mono">PREVIEW</span><i></i><span id="overlay-source" class="mono">—</span></div></div>
+              </div>
+            </div>
+          </article>
+          <div id="wall-empty" class="wall-empty" hidden>Camera feeds from <code>link.json</code> will appear here.</div>
+        </div>
+      </div>
+      <div class="replay-bar">
+        <div class="replay-title"><span class="eyebrow" id="stage-eyebrow">Monitoring</span><strong id="stage-title">Camera preview</strong><span id="stage-chip" class="status-chip preview">PREVIEW</span><a id="report-link" class="ghost-link" href="#" hidden>Export report</a></div>
+        <div class="transport">
+          <button id="play-toggle" class="play-button" type="button" disabled aria-label="Play replay"><svg viewBox="0 0 12 14" aria-hidden="true"><path id="play-icon" d="M1 1l10 6-10 6z"></path></svg></button>
+          <div class="scrub-wrap"><div id="incident-marks" class="incident-marks" aria-hidden="true"></div><input id="scrubber" type="range" min="0" max="0" value="0" step="1" disabled aria-label="Replay position"></div>
+          <span id="play-clock" class="mono play-clock">00:00 / 00:00</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel telemetry-card" id="telemetry-card">
+      <div class="card-heading telemetry-heading"><div><span class="eyebrow">Live analysis</span><h2>Telemetry &amp; Demand</h2></div><span class="hint" id="lane-summary">Awaiting telemetry</span></div>
+      <div class="telemetry-charts">
+        <section class="chart-panel"><div class="chart-heading"><h3>Congestion trend</h3><div id="congestion-legend" class="legend"></div></div><div id="congestion-chart" class="chart" role="img" aria-label="Congestion trend by lane"></div></section>
+        <section class="chart-panel"><div class="chart-heading"><h3>Queue &amp; occupancy</h3><div class="legend legend-muted"><span><i class="swatch swatch-queue"></i>Queue</span><span><i class="swatch swatch-occupancy"></i>Occupancy</span></div></div><div id="queue-chart" class="chart" role="img" aria-label="Queue and occupancy trend"></div></section>
+      </div>
+    </section>
+
+    <aside class="info-rail">
+      <section class="panel info-card activity-card">
+        <div class="card-heading"><div><span class="eyebrow">Activity</span><h2>Recent sessions</h2></div><span id="session-count" class="count">0</span></div>
+        <div id="session-list" class="session-list"><p class="empty">No recent sessions.</p></div>
+      </section>
+
+      <section class="panel info-card log-card">
+        <div class="card-heading"><div><span class="eyebrow">Log</span><h2>Incidents</h2></div><span id="incident-count" class="count">0</span></div>
+        <div class="log-status"><span id="event-status-dot" class="status-dot"></span><span id="event-status">Awaiting monitoring session</span></div>
+        <div id="incident-list" class="incident-list"><p class="empty">No incidents detected.</p></div>
+      </section>
+
+      <section class="panel info-card advisory-panel">
+        <div class="card-heading"><div><span class="eyebrow">Operations</span><h2>Response advisory</h2></div><span id="advisory-state" class="status-chip normal">NORMAL</span></div>
+        <div class="advisory-grid"><div><span>Priority</span><strong id="advisory-priority">LOW</strong></div><div><span>Ramp metering</span><strong id="advisory-metering">OPEN</strong></div></div>
+        <ul id="advisory-actions" class="action-list"><li>Maintain normal operations</li></ul>
+        <p id="advisory-reasons" class="advisory-reason">No active alerts; flow within normal range</p>
+        <details class="policy">
+          <summary>Policy thresholds</summary>
+          <label class="slider">Stopped speed<input id="policy-stopped" type="range" min="10" max="150" step="5" value="55"><output id="policy-stopped-out">55</output></label>
+          <label class="slider">Stopped duration<input id="policy-duration" type="range" min="0.5" max="5" step="0.5" value="1.5"><output id="policy-duration-out">1.5 s</output></label>
+          <label class="slider">Congestion alert<input id="policy-congestion" type="range" min="50" max="95" step="5" value="70"><output id="policy-congestion-out">70</output></label>
+          <button id="policy-apply" class="secondary" type="button" disabled>Recalculate advisory</button>
+        </details>
+      </section>
+    </aside>
+  </main>
+
+  <main id="about-view" class="about-view" hidden aria-labelledby="about-title">
+    <div class="about-document">
+      <section class="about-hero" id="about-top">
+        <div class="about-hero-copy">
+          <span class="eyebrow">FLOWTRAFFIC OPS · APPLICATION GUIDE</span>
+          <h2 id="about-title">Turn camera video<br>into roadway context.</h2>
+          <p>This example shows how SPE’s tracking and spatial analytics can support a traffic monitoring workflow—from a selected camera feed to lane-level telemetry and incident review.</p>
+          <div class="about-hero-meta"><span class="about-live-mark"><i></i> ONE SELECTED FEED ANALYZED</span><span>LOCAL OR SPE ENGINE MODE</span></div>
+        </div>
+        <figure class="about-illustration" aria-labelledby="about-illustration-caption">
+          <svg viewBox="0 0 560 205" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Traffic scene annotated with vehicle tracks and calibrated lanes">
+            <defs>
+              <linearGradient id="roadFade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#25394b"/><stop offset="1" stop-color="#111b26"/></linearGradient>
+              <linearGradient id="skyFade" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#142a3c"/><stop offset="1" stop-color="#101723"/></linearGradient>
+              <pattern id="scanLines" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0 3.5h4" stroke="#c4e5ff" stroke-opacity=".035"/></pattern>
+            </defs>
+            <rect width="560" height="205" fill="url(#skyFade)"/>
+            <path d="M0 72 560 58v147H0Z" fill="url(#roadFade)"/>
+            <path d="m0 72 560-14M0 205h560" stroke="#8aa2b7" stroke-opacity=".22"/>
+            <path d="M185 69v136M370 64v141" stroke="#d9e8f6" stroke-opacity=".34" stroke-dasharray="11 10"/>
+            <path d="M278 67v138" stroke="#facc15" stroke-opacity=".6" stroke-dasharray="6 7"/>
+            <g fill="#90a4b8" fill-opacity=".9"><rect x="97" y="126" width="40" height="17" rx="4" transform="rotate(-2 97 126)"/><rect x="251" y="99" width="26" height="12" rx="3"/><rect x="416" y="150" width="48" height="19" rx="4" transform="rotate(2 416 150)"/><rect x="329" y="119" width="31" height="14" rx="3"/></g>
+            <g fill="none" stroke="#4ade80" stroke-width="1.5"><rect x="91" y="119" width="53" height="31" rx="3"/><rect x="247" y="95" width="35" height="22" rx="3"/><rect x="409" y="143" width="61" height="32" rx="3"/></g>
+            <g fill="#86efac" font-family="monospace" font-size="8" font-weight="700"><text x="92" y="115">VEH 018 · LANE A</text><text x="247" y="90">VEH 042 · LANE D</text><text x="410" y="139">VEH 067 · LANE G</text></g>
+            <path d="M25 35h90" stroke="#38bdf8" stroke-opacity=".65"/><circle cx="25" cy="35" r="3" fill="#38bdf8"/>
+            <text x="35" y="31" fill="#bae6fd" font-family="monospace" font-size="8" letter-spacing="1">SPATIAL GRID · 8 LANES</text>
+            <rect width="560" height="205" fill="url(#scanLines)"/>
+          </svg>
+          <figcaption id="about-illustration-caption"><span><i class="legend-box"></i>Tracked object</span><span><i class="legend-lane"></i>Calibrated lane</span><span class="mono">CAM-01 / SPATIAL VIEW</span></figcaption>
+        </figure>
+      </section>
+
+      <div class="about-doc-layout">
+        <nav class="about-toc" aria-label="About page sections">
+          <span class="toc-heading">IN THIS GUIDE</span>
+          <a href="#about-overview">Application overview</a>
+          <a href="#about-pipeline">Processing pipeline</a>
+          <a href="#about-sdk">SPE SDK features</a>
+          <a href="#about-app-layer">Application logic</a>
+          <a href="#about-code">Code walkthrough</a>
+          <div class="toc-note"><span>INFO VIEW</span><p>Monitoring, live camera selection, analytics, and session review.</p></div>
+        </nav>
+
+        <article class="about-doc-body">
+          <section class="docs-section" id="about-overview">
+            <div class="docs-kicker">01 · APPLICATION OVERVIEW</div>
+            <h3>A single-feed traffic operations workflow</h3>
+            <p class="docs-lead">The camera wall reads sources from <code>examples/assets/link.json</code>. Operators select one of six YouTube feeds or the recorded sample, choose a lane preset, and start monitoring.</p>
+            <div class="docs-callouts">
+              <div><span class="callout-label">LIVE FEEDS</span><p>YouTube links are resolved to a readable stream. The selected camera is analyzed; other wall tiles remain still previews.</p></div>
+              <div><span class="callout-label">REVIEW</span><p>Live sessions run until stopped and keep a rolling replay window. Finite clips can be sampled and exported as JSON reports.</p></div>
+            </div>
+          </section>
+
+          <section class="docs-section" id="about-pipeline">
+            <div class="docs-kicker">02 · PROCESSING PIPELINE</div>
+            <h3>From pixels to lane-level measures</h3>
+            <p>Each sampled frame moves through detection, tracking, spatial calibration, and application-level traffic analysis.</p>
+            <div class="pipeline-steps">
+              <article class="pipeline-step"><span class="step-index">01</span><div class="step-icon camera-icon" aria-hidden="true"><i></i></div><div><h4>Ingest</h4><p>Selected camera or recorded clip</p></div><code>link.json · yt-dlp</code></article>
+              <article class="pipeline-step"><span class="step-index">02</span><div class="step-icon detect-icon" aria-hidden="true"><i></i><i></i><i></i></div><div><h4>Detect &amp; track</h4><p>Detections become persistent tracks</p></div><code>SPEClient · Tracker</code></article>
+              <article class="pipeline-step"><span class="step-index">03</span><div class="step-icon locate-icon" aria-hidden="true"><i></i><i></i><i></i></div><div><h4>Locate</h4><p>Map positions into calibrated lanes</p></div><code>SpatialEngine</code></article>
+              <article class="pipeline-step"><span class="step-index">04</span><div class="step-icon measure-icon" aria-hidden="true"><i></i><i></i><i></i></div><div><h4>Measure</h4><p>Aggregate flow and incident signals</p></div><code>Occupancy · crossings</code></article>
+            </div>
+          </section>
+
+          <section class="docs-section" id="about-sdk">
+            <div class="docs-kicker">03 · SPE SDK FEATURES</div>
+            <h3>SDK components used by this example</h3>
+            <p>The SDK supplies the tracking and spatial-analysis building blocks. The application connects them into a lane-monitoring workflow.</p>
+            <div class="sdk-table-wrap">
+              <table class="sdk-table">
+                <thead><tr><th scope="col">Component</th><th scope="col">Role in the pipeline</th><th scope="col">Used for</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row"><code>SPEClient</code></th><td>Calls the engine’s frame-detection endpoint in server mode.</td><td>Model-backed detections</td></tr>
+                  <tr><th scope="row"><code>ModelAgnosticTracker</code></th><td>Associates detections over time and maintains track identity.</td><td>Track history and motion</td></tr>
+                  <tr><th scope="row"><code>SpatialEngine</code></th><td>Calibrates the camera view and maps object positions to zones and lanes.</td><td>Lane-aware location</td></tr>
+                  <tr><th scope="row"><code>ZoneOccupancyTracker</code></th><td>Maintains occupancy counts for spatial zones.</td><td>Zone and demand metrics</td></tr>
+                  <tr><th scope="row"><code>LineCrossingCounter</code></th><td>Counts objects crossing virtual lane lines.</td><td>Per-lane crossings</td></tr>
+                  <tr><th scope="row"><code>summarize_tracks</code></th><td>Builds aggregate statistics from observed tracks.</td><td>Track summaries</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="docs-section" id="about-app-layer">
+            <div class="docs-kicker">04 · APPLICATION LOGIC</div>
+            <h3>What FlowTraffic adds around SPE</h3>
+            <div class="app-logic-grid">
+              <div><span>01</span><h4>Camera operations</h4><p>Source selection, YouTube stream resolution, live-wall previews, sessions, and replay.</p></div>
+              <div><span>02</span><h4>Traffic telemetry</h4><p>Lane aggregation for occupancy, queue length, crossings, congestion, and relative speed.</p></div>
+              <div><span>03</span><h4>Incident rules</h4><p>Application policies detect stopped vehicles, queue buildup, network congestion, and lane imbalance.</p></div>
+              <div><span>04</span><h4>Response guidance</h4><p>Advisory states and suggested actions are derived from the incident and telemetry history.</p></div>
+            </div>
+            <p class="docs-note"><b>Detection modes:</b> Local mode uses a lightweight OpenCV motion detector for demonstration. It is not a trained vehicle-classification model. Server mode sends frames through <code>SPEClient</code> to the configured SPE engine.</p>
+          </section>
+
+          <section class="docs-section" id="about-code">
+            <div class="docs-kicker">05 · CODE WALKTHROUGH</div>
+            <h3>How a frame becomes telemetry</h3>
+            <p>The core loop tracks detections first, spatializes the tracked objects, and then updates occupancy. The web layer aggregates those results into traffic events and advisories.</p>
+            <pre class="docs-code"><code>detections = detector.detect(frame, frame_index, timestamp)
+tracked = tracker.update(detections, timestamp)["detections"]
+spatial = engine.spatialize_result(
+    {"detections": tracked}
+)["detections"]
+occupancy_snapshot = occupancy.update(spatial, timestamp)
+lane_snapshot = build_lane_telemetry(spatial, counters)
+incidents = detect_incidents(history, policy)</code></pre>
+            <div class="docs-footnote"><span class="footnote-mark">i</span><p>“Relative speed” is indexed to camera calibration and is not a verified real-world speed measurement.</p></div>
+          </section>
+        </article>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
